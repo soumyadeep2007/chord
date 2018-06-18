@@ -20,3 +20,16 @@ func calculateId(key string, m uint) (uint64) {
 	hashedKey := binary.BigEndian.Uint64(h.Sum(nil))
 	return hashedKey % (1 << m)
 }
+
+func assertIdsUnique(records []Record) bool {
+	idSet := make(map[uint64]bool)
+	for _, record := range records {
+		idSet[record.id] = true
+	}
+
+	if len(idSet) != len(records) {
+		return false
+	}
+
+	return true
+}

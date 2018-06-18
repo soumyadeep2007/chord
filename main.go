@@ -25,6 +25,10 @@ func readRecords(m uint) (records []Record) {
 		records = append(records, *NewRecord(keyValue[0], keyValue[1], m))
 	}
 
+	if !assertIdsUnique(records) {
+		os.Exit(2)
+	}
+
 	return records
 }
 
@@ -44,9 +48,9 @@ func readNodeIps() (nodeIps []string) {
 }
 
 func main() {
-	var m uint = 5
+	var m uint = 9
 	records := readRecords(m)
 	nodeIps := readNodeIps()
 	ring := *NewRing(m, nodeIps, records)
-	print(ring)
+	print(ring.m)
 }

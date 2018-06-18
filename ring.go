@@ -26,37 +26,46 @@ func NewRing(m uint, nodeIps []string, records []Record) *Ring {
 
 	for i, nodeId := range nodeIds {
 		dist := computeDistribution(i, nodeIds, records)
-		ring.nodes = append(ring.nodes, *NewNode(nodeId, dist))
+		ring.nodes[i] = *NewNode(nodeId, dist)
 	}
 
-	for i, node := range ring.nodes {
-		node.predecessor = ring.nodes[i - 1]
-		node.successor = ring.nodes[(i + 1) % len(ring.nodes)]
-		node.fingerTable = computeFingerTable(i, ring.nodes, m)
+	for i := range ring.nodes {
+		predIndex := i - 1
+		if predIndex < 0 {
+			predIndex = len(ring.nodes) - 1
+		}
+		ring.nodes[i].predecessor = &ring.nodes[predIndex]
+		ring.nodes[i].successor = &ring.nodes[(i + 1) % len(ring.nodes)]
+		ring.nodes[i].fingerTable = computeFingerTable(i, ring.nodes, m)
 	}
 
 	return &ring
 }
 
 func computeDistribution(nodeIndex int, nodeIdsSorted []uint64, recordsSorted []Record) (dist map[uint64]Record) {
-	lowId := nodeIdsSorted[nodeIndex-1]
+	nodeIndexLeft := nodeIndex-1
+	if nodeIndexLeft < 0 {
+		nodeIndexLeft = len(nodeIdsSorted) - 1
+	}
+	// Records with Ids in (lowId, highId] will be distributed to node
+	lowId := nodeIdsSorted[nodeIndexLeft]
 	highId := nodeIdsSorted[nodeIndex]
 
-	searchKey := recordsSorted[lowId].id
-	lo := bisectLeftRecord(recordsSorted, searchKey)
-	if nodeIdsSorted[nodeIndex-1] == recordsSorted[lo].id {
-		lo += 1
+	searchKey := lowId
+	loRecordIndex := bisectLeftRecord(recordsSorted, searchKey)
+	if nodeIdsSorted[nodeIndexLeft] == recordsSorted[loRecordIndex].id {
+		loRecordIndex += 1
 	}
 
 	dist = make(map[uint64]Record)
 	if lowId <= highId {
-		i := lo
+		i := loRecordIndex
 		for recordsSorted[i].id <= highId {
 			dist[recordsSorted[i].id] = recordsSorted[i]
 			i += 1
 		}
 	} else {
-		for i := lo; i < len(recordsSorted); i++ {
+		for i := loRecordIndex; i < len(recordsSorted); i++ {
 			dist[recordsSorted[i].id] = recordsSorted[i]
 		}
 		i := 0
@@ -69,14 +78,15 @@ func computeDistribution(nodeIndex int, nodeIdsSorted []uint64, recordsSorted []
 	return dist
 }
 
-func computeFingerTable(nodeIndex int, nodesSorted []Node, m uint) (fingerTable []Node) {
+func computeFingerTable(nodeIndex int, nodesSorted []Node, m uint) (fingerTable []*Node) {
+	fingerTable = make([]*Node, m)
 	id := nodesSorted[nodeIndex].id
 	var i uint
 	for i = 0; i < m; i++ {
 		inc := uint64(1 << i)
-		searchKey := nodesSorted[(id+inc)%(1<<m)].id
+		searchKey := (id+inc)%(1<<m)
 		index := bisectLeftNode(nodesSorted, searchKey)
-		fingerTable = append(fingerTable, nodesSorted[index])
+		fingerTable[i] = &nodesSorted[index % len(nodesSorted)]
 	}
 
 	return fingerTable

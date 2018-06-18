@@ -4,9 +4,9 @@ type Node struct {
 	id          uint64
 	dist        map[uint64]Record
 	channel     chan message
-	predecessor Node
-	successor   Node
-	fingerTable []Node
+	predecessor *Node
+	successor   *Node
+	fingerTable []*Node
 }
 
 func NewNode(id uint64, dist map[uint64]Record) *Node {
