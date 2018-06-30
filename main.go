@@ -3,16 +3,28 @@ package main
 import (
 	"bufio"
 	"os"
-	"log"
 	"strings"
+	log "github.com/sirupsen/logrus"
 )
 
-type message struct {
-	tag   string
-	value interface{}
+func init() {
+	log.SetFormatter(&log.JSONFormatter{})
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.InfoLevel)
 }
 
-func readRecords(m uint) (records []Record) {
+func main() {
+	var m = 9
+	records := readRecords(m)
+	nodeIps := readNodeIps()
+	ring := *NewRing(m, nodeIps, records)
+	client := NewClient("127.0.0.1", &ring)
+	executeQueries(client, &ring)
+
+	select {}
+}
+
+func readRecords(m int) (records []Record) {
 	file, err := os.Open("records.txt")
 	if err != nil {
 		log.Fatal(err)
@@ -26,6 +38,7 @@ func readRecords(m uint) (records []Record) {
 	}
 
 	if !assertIdsUnique(records) {
+		log.Fatalf("Non unique keys")
 		os.Exit(2)
 	}
 
@@ -47,10 +60,24 @@ func readNodeIps() (nodeIps []string) {
 	return nodeIps
 }
 
-func main() {
-	var m uint = 9
-	records := readRecords(m)
-	nodeIps := readNodeIps()
-	ring := *NewRing(m, nodeIps, records)
-	print(ring.m)
+func executeQueries(client *Client, ring *Ring) {
+	file, err := os.Open("workload.txt")
+	if err != nil {
+		log.Fatal("Couldn't open records file..exiting..")
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		// Connect to a random client every time and query
+		key := scanner.Text()
+		ring.Get(key, client, generateNextRequestId())
+	}
+}
+
+var currRequestId = 0
+
+func generateNextRequestId() int {
+	currRequestId += 1
+	return currRequestId
 }

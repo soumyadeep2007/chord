@@ -2,14 +2,17 @@ package main
 
 import (
 	"sort"
+	"math/rand"
+	"time"
+	"github.com/apex/log"
 )
 
 type Ring struct {
-	m     uint
+	m     int
 	nodes []Node
 }
 
-func NewRing(m uint, nodeIps []string, records []Record) *Ring {
+func NewRing(m int, nodeIps []string, records []Record) *Ring {
 	ring := Ring{m: m, nodes: make([]Node, len(nodeIps))}
 
 	var nodeIds []uint64
@@ -26,7 +29,7 @@ func NewRing(m uint, nodeIps []string, records []Record) *Ring {
 
 	for i, nodeId := range nodeIds {
 		dist := computeDistribution(i, nodeIds, records)
-		ring.nodes[i] = *NewNode(nodeId, dist)
+		ring.nodes[i] = *NewNode(nodeId, dist, m)
 	}
 
 	for i := range ring.nodes {
@@ -35,15 +38,29 @@ func NewRing(m uint, nodeIps []string, records []Record) *Ring {
 			predIndex = len(ring.nodes) - 1
 		}
 		ring.nodes[i].predecessor = &ring.nodes[predIndex]
-		ring.nodes[i].successor = &ring.nodes[(i + 1) % len(ring.nodes)]
+		ring.nodes[i].successor = &ring.nodes[(i+1)%len(ring.nodes)]
 		ring.nodes[i].fingerTable = computeFingerTable(i, ring.nodes, m)
 	}
+
+	for i := range ring.nodes {
+		ring.nodes[i].start()
+	}
+
+	log.WithFields(log.Fields{
+		"m":     m,
+		"nodes": ring.nodes,
+	}).Info("Ring setup with:")
 
 	return &ring
 }
 
+func (ring *Ring) Get(key string, client *Client, requestId interface{}) {
+	node := ring.connect()
+	go ring.performRequest(node, client, key, requestId)
+}
+
 func computeDistribution(nodeIndex int, nodeIdsSorted []uint64, recordsSorted []Record) (dist map[uint64]Record) {
-	nodeIndexLeft := nodeIndex-1
+	nodeIndexLeft := nodeIndex - 1
 	if nodeIndexLeft < 0 {
 		nodeIndexLeft = len(nodeIdsSorted) - 1
 	}
@@ -78,16 +95,76 @@ func computeDistribution(nodeIndex int, nodeIdsSorted []uint64, recordsSorted []
 	return dist
 }
 
-func computeFingerTable(nodeIndex int, nodesSorted []Node, m uint) (fingerTable []*Node) {
+func computeFingerTable(nodeIndex int, nodesSorted []Node, m int) (fingerTable []*Node) {
 	fingerTable = make([]*Node, m)
 	id := nodesSorted[nodeIndex].id
-	var i uint
-	for i = 0; i < m; i++ {
-		inc := uint64(1 << i)
-		searchKey := (id+inc)%(1<<m)
+	for i := 0; i < m; i++ {
+		inc := uint64(1 << uint(i))
+		searchKey := (id + inc) % (1 << uint(m))
 		index := bisectLeftNode(nodesSorted, searchKey)
-		fingerTable[i] = &nodesSorted[index % len(nodesSorted)]
+		fingerTable[i] = &nodesSorted[index%len(nodesSorted)]
 	}
 
 	return fingerTable
+}
+
+/*
+ * Connects to a node at random
+ */
+func (ring *Ring) connect() *Node {
+	rand.Seed(time.Now().Unix())
+	i := rand.Int() % len(ring.nodes)
+	return &ring.nodes[i]
+}
+
+func (ring *Ring) performRequest(node *Node, client *Client, key string, requestId interface{}) {
+	findSuccessorMsg := Message{
+		tag:  "find_successor",
+		from: client.id,
+		query: Query{
+			key:       key,
+			id:        calculateId(key, ring.m),
+			requestId: requestId,
+			client:    client,
+		},
+		to: node.id,
+	}
+
+	go ring.receive(client)
+
+	findSuccessorMsg.log("Client sent find_successor message.")
+	node.channel <- findSuccessorMsg
+}
+
+func (ring *Ring) receive(client *Client) {
+	for msg := range client.chResponse {
+		switch msg.tag {
+		case "successor":
+			ring.recvSuccessor(msg)
+		case "result":
+			ring.recvResult(msg)
+		}
+	}
+}
+
+func (ring *Ring) recvSuccessor(msg Message) {
+	msg.log("Client received successor message.")
+
+	successor := msg.custom.(*Node)
+	getMsg := Message{
+		tag:   "get",
+		from:  msg.query.client.id,
+		query: msg.query,
+		to:    successor.id,
+	}
+
+	getMsg.log("Client sent get message.")
+	successor.channel <- getMsg
+}
+
+func (ring *Ring) recvResult(msg Message) {
+	msg.log("Client received result message.")
+
+	result := msg.custom
+	log.Infof(">>>>>Query : Key = [%s]; Result: Value = [%v]\n", msg.query.key, result)
 }

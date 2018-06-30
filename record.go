@@ -6,7 +6,7 @@ type Record struct {
 	value interface{}
 }
 
-func NewRecord(key string, value interface{}, m uint) *Record {
+func NewRecord(key string, value interface{}, m int) *Record {
 	record := Record{id:calculateId(key, m), key:key, value:value}
 	return &record
 }
